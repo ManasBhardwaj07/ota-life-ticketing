@@ -4,6 +4,20 @@
 
 ---
 
+## 📱 App Walkthrough & Visual Proof (In Order)
+
+| 1. Events & Stock | 2. Booking Flow & Banner | 3. Active Ticket & QR Code |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/01_events_screen.png" width="250" alt="Events Screen" /> | <img src="docs/screenshots/02_booking_flow.png" width="250" alt="Booking Flow" /> | <img src="docs/screenshots/03_my_tickets_active.png" width="250" alt="Active Ticket" /> |
+| **Initial State:** Naruto (`#1`), 2 tickets left, warm paper palette | **Micro-Optimism:** Local decrement post-201 & slide-down banner | **Admission:** Matcha green `ADMIT ONE` badge & quiet-zone QR |
+
+| 4. Gate Check-in | 5. Sold Out State | 6. Offline Error Pop-up |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/04_ticket_checked_in.png" width="250" alt="Checked In Ticket" /> | <img src="docs/screenshots/05_sold_out_state.png" width="250" alt="Sold Out State" /> | <img src="docs/screenshots/06_network_resilience.png" width="250" alt="Offline Error Pop-up" /> |
+| **Entry Complete:** Amber `CHECKED IN` + gate scan timestamp | **Truthful Inventory:** `SOLD OUT` badge & disabled button | **Network Resilience:** Modal error dialog + status banner |
+
+---
+
 ## 🏗️ Architecture & Technology Stack
 
 - **API:** Node.js (v24), TypeScript, Express 4, Prisma ORM 6, MySQL 8 (InnoDB row locking)
@@ -124,9 +138,9 @@ npx expo start --clear
 ### Users (Header `X-User-Id`)
 | ID | Name | Role |
 |:---|:---|:---|
-| `1` | Alice Tanaka | Fan 1 (Primary) |
-| `2` | Bob Kenji | Fan 2 |
-| `3` | Charlie Sato | Fan 3 |
+| `1` | Naruto | Fan 1 (Primary) |
+| `2` | Ichigo | Fan 2 |
+| `3` | Luffy | Fan 3 |
 
 ### Event (Seeded State)
 - **ID:** `1`
@@ -277,7 +291,7 @@ The suite executes `Promise.allSettled` with concurrent bookings against an isol
 ## 📱 Mobile App Verification Walkthrough (vivo X200)
 
 1. **Launch App:**
-   - Active identity is Alice (`X-User-Id: 1`) by default in the top identity bar.
+   - Active identity is Naruto (`X-User-Id: 1`) by default in the top identity bar.
    - Event "OTA TOKYO Fan Fest" shows `2 TICKETS LEFT` in vermillion tag badge.
    - Warm paper background (`#FAF7F2`) and card surfaces with zero layout shifts.
 2. **Book 1 Ticket:**
@@ -285,7 +299,7 @@ The suite executes `Promise.allSettled` with concurrent bookings against an isol
    - Button scales slightly (0.97 press feedback) and transitions to `RESERVING...` (disabled while in flight).
    - Animated slide-down confirmation banner appears (`RESERVED 1 TICKET!`), inventory immediately cross-fades to `1 TICKET LEFT`.
 3. **Switch User & Book Remaining Ticket:**
-   - Tap `Bob` (`#2`) in the identity bar.
+   - Tap `Ichigo` (`#2`) in the identity bar.
    - Quantity selector caps at `1` (remaining stock).
    - Tap `BOOK 1 TICKET`.
    - Event status updates to `SOLD OUT` (inkSoft), and booking button is disabled.
@@ -300,10 +314,10 @@ The suite executes `Promise.allSettled` with concurrent bookings against an isol
      ```
    - On the phone, pull down to refresh `MY TICKETS`.
    - Badge cross-fades (250ms) to `CHECKED IN` in amber (`#C98A12`) with the exact gate scan timestamp badge, and the QR wrapper dims to 0.55 opacity.
-6. **Network Resilience (Airplane Mode):**
-   - Toggle Airplane mode ON.
-   - Pull down to refresh -> renders warm paper `ErrorView` with `CODE: NETWORK_ERROR` and `Try Again` button (no unhandled promise rejections, crashes, or white screens).
-   - Toggle Airplane mode OFF -> tap `Try Again` -> cleanly reloads ticket list.
+6. **Network Resilience (Airplane / Offline Mode):**
+   - Toggle Airplane mode ON (or stop API connection).
+   - Pull down to refresh -> immediately raises native modal `Connection Offline` alert dialog and top failure banner (or warm paper `ErrorView` with `CODE: NETWORK_ERROR` and `Try Again` button if cold-started offline; zero unhandled promise rejections, crashes, or white screens).
+   - Re-enable connection -> tap `OK` / `Try Again` -> cleanly reloads ticket list and inventory.
 
 ---
 

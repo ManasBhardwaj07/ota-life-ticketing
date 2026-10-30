@@ -17,13 +17,13 @@ async function main() {
 
   // Create 3 users
   const user1 = await prisma.user.create({
-    data: { id: 1, name: "Alice Tanaka" },
+    data: { id: 1, name: "Naruto" },
   });
   const user2 = await prisma.user.create({
-    data: { id: 2, name: "Bob Kenji" },
+    data: { id: 2, name: "Ichigo" },
   });
   const user3 = await prisma.user.create({
-    data: { id: 3, name: "Charlie Sato" },
+    data: { id: 3, name: "Luffy" },
   });
 
   // Create 1 event with ticketsLeft = EXACTLY 2, capacity >= 2

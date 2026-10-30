@@ -9,9 +9,9 @@ interface Props {
 }
 
 const USERS = [
-  { id: 1, name: "Alice", role: "Fan 1" },
-  { id: 2, name: "Bob", role: "Fan 2" },
-  { id: 3, name: "Charlie", role: "Fan 3" },
+  { id: 1, name: "Naruto", role: "Fan 1" },
+  { id: 2, name: "Ichigo", role: "Fan 2" },
+  { id: 3, name: "Luffy", role: "Fan 3" },
 ];
 
 export function UserSwitcher({ currentUserId, onUserChange }: Props) {

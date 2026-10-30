@@ -8,6 +8,7 @@ import {
   RefreshControl,
   Animated,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { Event } from "../types";
 import { fetchApi, ApiError } from "../api/client";
@@ -79,10 +80,17 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
         return next;
       });
     } catch (err: any) {
-      if (err instanceof ApiError) {
-        setError({ message: err.message, code: err.code });
-      } else {
-        setError({ message: err.message || "Failed to load events" });
+      const code = err instanceof ApiError ? err.code : undefined;
+      const message = err.message || "Failed to load events";
+      setError({ message, code });
+
+      if (isRefresh) {
+        showBanner(message, "error");
+        Alert.alert(
+          "Connection Offline",
+          message,
+          [{ text: "OK" }]
+        );
       }
     } finally {
       setLoading(false);
@@ -145,6 +153,11 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
     } catch (err: any) {
       const msg = err instanceof ApiError ? err.message : "Booking could not be completed";
       showBanner(msg, "error");
+      Alert.alert(
+        "Booking Error",
+        msg,
+        [{ text: "OK" }]
+      );
       // Reconcile truthful stock on error
       loadEvents(false);
     } finally {

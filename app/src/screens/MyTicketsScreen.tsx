@@ -6,6 +6,7 @@ import {
   FlatList,
   RefreshControl,
   TouchableOpacity,
+  Alert,
 } from "react-native";
 import { Ticket } from "../types";
 import { fetchApi, ApiError } from "../api/client";
@@ -37,10 +38,16 @@ export function MyTicketsScreen({ activeUserId, onExploreEvents }: Props) {
       const data = await fetchApi<Ticket[]>("/me/tickets");
       setTickets(data);
     } catch (err: any) {
-      if (err instanceof ApiError) {
-        setError({ message: err.message, code: err.code });
-      } else {
-        setError({ message: err.message || "Failed to load tickets" });
+      const code = err instanceof ApiError ? err.code : undefined;
+      const message = err.message || "Failed to load tickets";
+      setError({ message, code });
+
+      if (isRefresh) {
+        Alert.alert(
+          "Connection Offline",
+          message,
+          [{ text: "OK" }]
+        );
       }
     } finally {
       setLoading(false);

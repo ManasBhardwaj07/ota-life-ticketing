@@ -86,6 +86,11 @@ WHERE `code` = ? AND `checkedInAt` IS NULL;
 ### Idempotency: The Honest Position
 > **"Booking is ATOMIC (concurrent requests cannot oversell) but not IDEMPOTENT (a client retry of the same request may create another booking). Recovery path: `GET /me/tickets`. This mirrors IRCTC's documented policy (retries are fresh bookings) and BookMyShow's (documented recovery via booking history). A full idempotency-key mechanism (client key + unique-key table + transactional insert, as used by Stripe) was out of scope; if payments were added it would become mandatory."**
 
+### Client Timeout Policy on Non-Idempotent Writes
+To safeguard the atomic-but-non-idempotent invariant:
+- **`GET` Reads (`/events`, `/me/tickets`):** Enforce an aggressive 10-second `AbortController` timeout to fail fast on dead network connections.
+- **`POST` Writes (`/events/:id/book`):** Are explicitly **exempt from short client abort timeouts** (default `timeoutMs: null`). Under intense concurrency, transactions serialize and wait on InnoDB's row-level write lock (MySQL default `innodb_lock_wait_timeout = 50s`). An aggressive client abort would trigger a premature `NETWORK_ERROR` while the server may commit moments later—creating an ambiguous outcome where an unguided user retry could duplicate an unwanted booking. An honest spinner awaiting authoritative server resolution strictly preserves transactional trust.
+
 ---
 
 ## ⚡ Quickstart Setup (Reviewer Step-by-Step)
@@ -285,6 +290,40 @@ cd api
 npm test
 ```
 The suite executes `Promise.allSettled` with concurrent bookings against an isolated test event with 1 ticket left, asserting that exactly one succeeds, one fails with `409 SoldOutError`, and `ticketsLeft` finishes at 0.
+
+### Automated End-to-End Concurrency & DB Assertion Verification
+To run Attacks A1 and A4 against live HTTP endpoints with **raw post-attack database query dumps**:
+```bash
+cd api
+npm run verify:concurrency
+```
+**Captured Live Evidence:**
+```text
+=== ATTACK A1 — TWO PARALLEL OVERSELL REQUESTS (ICHIGO vs LUFFY) ===
+Ichigo HTTP Result: 409 {"error":{"code":"SOLD_OUT","message":"Insufficient tickets remaining for this event"}}
+Luffy HTTP Result:  201 {"tickets":[{"code":"X8tQ6XNX3pc", ...}]}
+
+=== RAW DATABASE ASSERTIONS POST-ATTACK A1 ===
+DB ASSERTION 1 - ticketsLeft: 0 (MUST BE EXACTLY 0, NEVER -1)
+DB ASSERTION 2 - total tickets created in DB: 2 (MUST BE EXACTLY 2, NEVER 3)
+┌─────────┬────┬───────────────┬────────┬──────────────────────────┬─────────────┐
+│ (index) │ id │ code          │ userId │ createdAt                │ checkedInAt │
+├─────────┼────┼───────────────┼────────┼──────────────────────────┼─────────────┤
+│ 0       │ 1  │ 'LAupKs3-VLg' │ 1      │ 2026-10-30T10:56:25.254Z │ null        │
+│ 1       │ 2  │ 'X8tQ6XNX3pc' │ 3      │ 2026-10-30T10:56:25.282Z │ null        │
+└─────────┴────┴───────────────┴────────┴──────────────────────────┴─────────────┘
+
+=== ATTACK A4 — TWO PARALLEL CHECK-INS FOR TICKET 1 ===
+Check-in Request A: 409 {"error":{"code":"ALREADY_CHECKED_IN", ...,"checkedInAt":"2026-10-30T10:56:25.304Z"}}
+Check-in Request B: 200 {"code":"LAupKs3-VLg","checkedInAt":"2026-10-30T10:56:25.304Z"}
+
+=== RAW DATABASE ASSERTIONS POST-ATTACK A4 ===
+DB Ticket checkedInAt: 2026-10-30T10:56:25.304Z
+Winner 200 returned timestamp: 2026-10-30T10:56:25.304Z
+Loser 409 returned checkedInAt: 2026-10-30T10:56:25.304Z
+Byte-identical comparison (Winner vs Loser): true
+Byte-identical comparison (Loser vs DB): true
+```
 
 ---
 

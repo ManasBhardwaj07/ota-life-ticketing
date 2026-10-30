@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -40,6 +41,11 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
+  const activeUserRef = useRef(activeUserId);
+
+  useEffect(() => {
+    activeUserRef.current = activeUserId;
+  }, [activeUserId]);
 
   const showBanner = (text: string, type: "success" | "error") => {
     if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
@@ -131,6 +137,7 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
     const rawQty = quantities[event.id] || 1;
     const maxAllowed = Math.min(BOOKING_MAX_QTY, Math.max(1, event.ticketsLeft));
     const qty = Math.max(1, Math.min(rawQty, maxAllowed));
+    const bookingUserId = activeUserId;
     setBookingEventId(event.id);
 
     try {
@@ -151,10 +158,13 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
         )
       );
 
-      showBanner(
-        `Reserved ${count} ticket${count > 1 ? "s" : ""} successfully. Ready in My Tickets.`,
-        "success"
-      );
+      // Sibling B05 guard: Only display success banner if the user who booked is still active
+      if (activeUserRef.current === bookingUserId) {
+        showBanner(
+          `Reserved ${count} ticket${count > 1 ? "s" : ""} successfully. Ready in My Tickets.`,
+          "success"
+        );
+      }
 
       // Background silent refetch to reconcile truthfully with database
       loadEvents(false);

@@ -34,9 +34,13 @@ export class ApiError extends Error {
   }
 }
 
-const REQUEST_TIMEOUT_MS = 10000;
+const DEFAULT_READ_TIMEOUT_MS = 10000;
 
-export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export interface FetchOptions extends RequestInit {
+  timeoutMs?: number | null;
+}
+
+export async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
   const headers: Record<string, string> = {
@@ -49,9 +53,21 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     headers["Content-Type"] = "application/json";
   }
 
-  // B04: AbortController prevents dead connections from hanging indefinitely
+  // R1 Defense / Concurrency: GET reads fail fast (10s). Non-idempotent writes (POST /book)
+  // are exempt from short timeouts so client abort never disagrees with InnoDB row lock commit.
+  const isWrite = options.method && options.method.toUpperCase() !== "GET";
+  const effectiveTimeout =
+    options.timeoutMs !== undefined
+      ? options.timeoutMs
+      : isWrite
+      ? null
+      : DEFAULT_READ_TIMEOUT_MS;
+
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId =
+    effectiveTimeout !== null
+      ? setTimeout(() => controller.abort(), effectiveTimeout)
+      : null;
 
   let response: Response;
   try {
@@ -67,7 +83,9 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
       : "Network connection failed. Verify API server is running and ADB reverse is active.";
     throw new ApiError(0, "NETWORK_ERROR", message);
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
   }
 
   if (!response.ok) {

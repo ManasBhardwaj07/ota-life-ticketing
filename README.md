@@ -30,13 +30,14 @@ ota-life-ticketing/
 │   ├── .env.example
 │   └── package.json
 ├── app/
-│   ├── App.tsx                   # Safe area, User Switcher, bottom tab navigator
+│   ├── App.tsx                   # Safe area, User Switcher, text-only bottom tab navigator
 │   ├── src/
 │   │   ├── api/
 │   │   │   ├── config.ts         # API_BASE_URL = http://127.0.0.1:3000 (sole source of truth)
 │   │   │   └── client.ts         # Fetch client injecting X-User-Id with typed errors
 │   │   ├── screens/              # EventsScreen.tsx, MyTicketsScreen.tsx
-│   │   ├── components/           # TicketCard.tsx, QtyPicker.tsx, LoadingView.tsx, ErrorView.tsx, UserSwitcher.tsx
+│   │   ├── components/           # TicketCard.tsx, QtyPicker.tsx, LoadingView.tsx, ErrorView.tsx, UserSwitcher.tsx, EventCardSkeleton.tsx, TicketCardSkeleton.tsx
+│   │   ├── theme.ts              # Semantic light tokens (paper, ink, vermillion, matcha, amber)
 │   │   └── types.ts
 │   └── package.json
 └── README.md
@@ -276,31 +277,32 @@ The suite executes `Promise.allSettled` with concurrent bookings against an isol
 ## 📱 Mobile App Verification Walkthrough (vivo X200)
 
 1. **Launch App:**
-   - Active identity is Alice (`X-User-Id: 1`) by default.
-   - Event "OTA TOKYO Fan Fest" shows `🔥 2 TICKETS LEFT`.
+   - Active identity is Alice (`X-User-Id: 1`) by default in the top identity bar.
+   - Event "OTA TOKYO Fan Fest" shows `2 TICKETS LEFT` in vermillion tag badge.
+   - Warm paper background (`#FAF7F2`) and card surfaces with zero layout shifts.
 2. **Book 1 Ticket:**
-   - Select Quantity: `1` -> tap `BOOK 1 TICKET`.
-   - Button transitions to `RESERVING...` (disabled while in flight).
-   - Success banner appears, inventory immediately updates to `🔥 1 TICKET LEFT`.
+   - Select Quantity: `1` using compact horizontal stepper `[-] 1 [+]` -> tap `BOOK 1 TICKET`.
+   - Button scales slightly (0.97 press feedback) and transitions to `RESERVING...` (disabled while in flight).
+   - Animated slide-down confirmation banner appears (`RESERVED 1 TICKET!`), inventory immediately cross-fades to `1 TICKET LEFT`.
 3. **Switch User & Book Remaining Ticket:**
-   - Tap `#2 Bob` in the top identity bar.
+   - Tap `Bob` (`#2`) in the identity bar.
    - Quantity selector caps at `1` (remaining stock).
    - Tap `BOOK 1 TICKET`.
-   - Event status updates to `● SOLD OUT`, and button is disabled.
+   - Event status updates to `SOLD OUT` (inkSoft), and booking button is disabled.
 4. **View Ticket & QR Code:**
-   - Switch to the `🎟️ My Tickets` tab.
-   - Ticket card renders with `#<random_code>`, event details, and crisp QR code.
-   - Status badge shows `● ADMIT ONE`.
+   - Switch to the `MY TICKETS` tab.
+   - Ticket card renders with stub cutout divider, `#<random_code>`, event details, and quiet-zone QR code (`#000000` on `#FFFFFF`).
+   - Status badge shows `ADMIT ONE` in matcha green (`#2F9E6E`).
 5. **Gate Check-in Simulation:**
    - In terminal, check in the ticket:
      ```bash
      curl -X POST http://localhost:3000/checkins -H "Content-Type: application/json" -d "{\"code\": \"<CODE_ON_SCREEN>\"}"
      ```
-   - On the phone, pull down to refresh `My Tickets`.
-   - Card transitions to `✓ CHECKED IN` with the exact gate scan timestamp badge.
+   - On the phone, pull down to refresh `MY TICKETS`.
+   - Badge cross-fades (250ms) to `CHECKED IN` in amber (`#C98A12`) with the exact gate scan timestamp badge, and the QR wrapper dims to 0.55 opacity.
 6. **Network Resilience (Airplane Mode):**
    - Toggle Airplane mode ON.
-   - Pull down to refresh -> renders dark themed `ErrorView` with `CODE: NETWORK_ERROR` and `Try Again` button (no unhandled promise rejections, crashes, or white screens).
+   - Pull down to refresh -> renders warm paper `ErrorView` with `CODE: NETWORK_ERROR` and `Try Again` button (no unhandled promise rejections, crashes, or white screens).
    - Toggle Airplane mode OFF -> tap `Try Again` -> cleanly reloads ticket list.
 
 ---

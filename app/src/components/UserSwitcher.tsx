@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { getSelectedUserId, setSelectedUserId } from "../api/client";
+import { colors, radius, spacing, typography } from "../theme";
 
 interface Props {
   currentUserId: number;
@@ -31,6 +32,8 @@ export function UserSwitcher({ currentUserId, onUserChange }: Props) {
               style={[styles.userButton, isSelected && styles.userButtonSelected]}
               onPress={() => handleSelect(user.id)}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Switch active user identity to ${user.name}`}
             >
               <Text
                 style={[
@@ -50,43 +53,43 @@ export function UserSwitcher({ currentUserId, onUserChange }: Props) {
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: "#12141F",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.paper,
     borderBottomWidth: 1,
-    borderBottomColor: "#202334",
+    borderBottomColor: colors.line,
   },
   label: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#6B728E",
-    letterSpacing: 0.8,
-    marginBottom: 6,
+    fontSize: typography.size.micro,
+    fontWeight: typography.weight.bold,
+    color: colors.inkSoft,
+    letterSpacing: typography.tracking.caps,
+    marginBottom: spacing.xs,
   },
   buttonsRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: spacing.sm,
   },
   userButton: {
     flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    backgroundColor: "#161824",
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.card,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#26293A",
+    borderColor: colors.line,
   },
   userButtonSelected: {
-    backgroundColor: "#FF3366",
-    borderColor: "#FF3366",
+    backgroundColor: colors.vermillion,
+    borderColor: colors.vermillion,
   },
   userName: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#9EA2B6",
+    fontSize: typography.size.sub,
+    fontWeight: typography.weight.bold,
+    color: colors.inkSoft,
   },
   userNameSelected: {
-    color: "#FFFFFF",
+    color: colors.card,
   },
 });

@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { colors, radius, spacing, typography } from "../theme";
 
 interface Props {
   value: number;
@@ -23,26 +24,32 @@ export function QtyPicker({ value, onChange, max = 4, disabled = false }: Props)
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>QUANTITY (MAX {effectiveMax})</Text>
-      <View style={styles.controlsRow}>
+      <View style={styles.labelCol}>
+        <Text style={styles.label}>QUANTITY</Text>
+        <Text style={styles.sublabel}>Max {effectiveMax} per order</Text>
+      </View>
+
+      <View style={styles.stepperRow}>
         <TouchableOpacity
           style={[styles.btn, (disabled || value <= 1) && styles.btnDisabled]}
           onPress={handleDecrement}
           disabled={disabled || value <= 1}
           activeOpacity={0.7}
+          accessibilityLabel="Decrease ticket quantity"
+          accessibilityRole="button"
         >
           <Text style={[styles.btnText, (disabled || value <= 1) && styles.textDisabled]}>−</Text>
         </TouchableOpacity>
 
-        <View style={styles.valueContainer}>
-          <Text style={styles.valueText}>{value}</Text>
-        </View>
+        <Text style={styles.valueText}>{value}</Text>
 
         <TouchableOpacity
           style={[styles.btn, (disabled || value >= effectiveMax) && styles.btnDisabled]}
           onPress={handleIncrement}
           disabled={disabled || value >= effectiveMax}
           activeOpacity={0.7}
+          accessibilityLabel="Increase ticket quantity"
+          accessibilityRole="button"
         >
           <Text style={[styles.btnText, (disabled || value >= effectiveMax) && styles.textDisabled]}>+</Text>
         </TouchableOpacity>
@@ -53,52 +60,68 @@ export function QtyPicker({ value, onChange, max = 4, disabled = false }: Props)
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    marginVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.line,
+  },
+  labelCol: {
+    justifyContent: "center",
   },
   label: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#6B728E",
-    letterSpacing: 1,
-    marginBottom: 8,
+    fontSize: typography.size.caption,
+    fontWeight: typography.weight.bold,
+    color: colors.inkSoft,
+    letterSpacing: typography.tracking.caps,
   },
-  controlsRow: {
+  sublabel: {
+    fontSize: typography.size.micro,
+    color: colors.inkSoft,
+    marginTop: 2,
+  },
+  stepperRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#161824",
-    borderRadius: 14,
-    padding: 4,
+    backgroundColor: colors.paper,
+    borderRadius: radius.md,
+    padding: 3,
     borderWidth: 1,
-    borderColor: "#26293A",
+    borderColor: colors.line,
+    gap: spacing.md,
   },
   btn: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: "#202334",
+    width: 38,
+    height: 38,
+    borderRadius: radius.sm,
+    backgroundColor: colors.card,
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.line,
   },
   btnDisabled: {
-    backgroundColor: "#161824",
+    backgroundColor: colors.paper,
+    borderColor: colors.line,
     opacity: 0.4,
   },
   btnText: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    lineHeight: 24,
+    fontSize: 20,
+    fontWeight: typography.weight.bold,
+    color: colors.ink,
+    lineHeight: 22,
   },
   textDisabled: {
-    color: "#4B4E63",
-  },
-  valueContainer: {
-    flex: 1,
-    alignItems: "center",
+    color: colors.inkSoft,
   },
   valueText: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: typography.weight.heavy,
+    color: colors.ink,
+    minWidth: 20,
+    textAlign: "center",
   },
 });

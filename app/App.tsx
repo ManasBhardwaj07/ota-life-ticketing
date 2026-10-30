@@ -11,6 +11,7 @@ import { EventsScreen } from "./src/screens/EventsScreen";
 import { MyTicketsScreen } from "./src/screens/MyTicketsScreen";
 import { UserSwitcher } from "./src/components/UserSwitcher";
 import { getSelectedUserId } from "./src/api/client";
+import { colors, radius, spacing, typography } from "./src/theme";
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<"events" | "tickets">("events");
@@ -19,169 +20,173 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea}>
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
 
-      {/* Main Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.appTitle}>OTA LIFE</Text>
-          <Text style={styles.appSubtitle}>Mini Ticketing Engine</Text>
+        {/* Main Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.appTitle}>OTA LIFE</Text>
+            <Text style={styles.appSubtitle}>TICKETING ENGINE</Text>
+          </View>
+          <View style={styles.statusIndicator}>
+            <View style={styles.statusDot} />
+            <Text style={styles.statusText}>127.0.0.1:3000</Text>
+          </View>
         </View>
-        <View style={styles.statusIndicator}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText}>127.0.0.1:3000</Text>
+
+        {/* User Switcher Bar */}
+        <UserSwitcher
+          currentUserId={activeUserId}
+          onUserChange={(uid) => setActiveUserId(uid)}
+        />
+
+        {/* Screen Body */}
+        <View style={styles.screenContainer}>
+          {currentTab === "events" ? (
+            <EventsScreen
+              activeUserId={activeUserId}
+              onBookingSuccess={() => {
+                // Keep on screen or navigate as desired
+              }}
+            />
+          ) : (
+            <MyTicketsScreen
+              activeUserId={activeUserId}
+              onExploreEvents={() => setCurrentTab("events")}
+            />
+          )}
         </View>
-      </View>
 
-      {/* User Switcher Bar (R4 / P4 Requirement) */}
-      <UserSwitcher
-        currentUserId={activeUserId}
-        onUserChange={(uid) => setActiveUserId(uid)}
-      />
-
-      {/* Screen Body */}
-      <View style={styles.screenContainer}>
-        {currentTab === "events" ? (
-          <EventsScreen
-            activeUserId={activeUserId}
-            onBookingSuccess={() => {
-              // Optionally stay or switch tabs
-            }}
-          />
-        ) : (
-          <MyTicketsScreen
-            activeUserId={activeUserId}
-            onExploreEvents={() => setCurrentTab("events")}
-          />
-        )}
-      </View>
-
-      {/* Bottom Tabs */}
-      <View style={styles.bottomTabs}>
-        <TouchableOpacity
-          style={[styles.tabButton, currentTab === "events" && styles.tabButtonActive]}
-          onPress={() => setCurrentTab("events")}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.tabIcon, currentTab === "events" && styles.tabIconActive]}>
-            🎪
-          </Text>
-          <Text
-            style={[styles.tabLabel, currentTab === "events" && styles.tabLabelActive]}
+        {/* Bottom Navigation Tabs (No emoji icons per G3) */}
+        <View style={styles.bottomTabs}>
+          <TouchableOpacity
+            style={[styles.tabButton, currentTab === "events" && styles.tabButtonActive]}
+            onPress={() => setCurrentTab("events")}
+            activeOpacity={0.8}
+            accessibilityRole="tab"
+            accessibilityLabel="Events Tab"
+            accessibilityState={{ selected: currentTab === "events" }}
           >
-            Events
-          </Text>
-        </TouchableOpacity>
+            <Text
+              style={[styles.tabLabel, currentTab === "events" && styles.tabLabelActive]}
+            >
+              EVENTS
+            </Text>
+            {currentTab === "events" && <View style={styles.activeIndicator} />}
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.tabButton, currentTab === "tickets" && styles.tabButtonActive]}
-          onPress={() => setCurrentTab("tickets")}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.tabIcon, currentTab === "tickets" && styles.tabIconActive]}>
-            🎟️
-          </Text>
-          <Text
-            style={[styles.tabLabel, currentTab === "tickets" && styles.tabLabelActive]}
+          <TouchableOpacity
+            style={[styles.tabButton, currentTab === "tickets" && styles.tabButtonActive]}
+            onPress={() => setCurrentTab("tickets")}
+            activeOpacity={0.8}
+            accessibilityRole="tab"
+            accessibilityLabel="My Tickets Tab"
+            accessibilityState={{ selected: currentTab === "tickets" }}
           >
-            My Tickets
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
-  </SafeAreaProvider>
-);
+            <Text
+              style={[styles.tabLabel, currentTab === "tickets" && styles.tabLabelActive]}
+            >
+              MY TICKETS
+            </Text>
+            {currentTab === "tickets" && <View style={styles.activeIndicator} />}
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </SafeAreaProvider>
+  );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#0D0E15",
+    backgroundColor: colors.paper,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 18,
-    paddingTop: 12,
-    paddingBottom: 12,
-    backgroundColor: "#0D0E15",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.paper,
     borderBottomWidth: 1,
-    borderBottomColor: "#1A1C28",
+    borderBottomColor: colors.line,
   },
   appTitle: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: "#FFFFFF",
-    letterSpacing: 1.5,
+    fontSize: typography.size.heading,
+    fontWeight: typography.weight.black,
+    color: colors.ink,
+    letterSpacing: typography.tracking.wide,
   },
   appSubtitle: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#FF3366",
-    letterSpacing: 0.5,
+    fontSize: typography.size.micro,
+    fontWeight: typography.weight.heavy,
+    color: colors.vermillion,
+    letterSpacing: typography.tracking.caps,
     marginTop: 1,
   },
   statusIndicator: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#161824",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
     borderWidth: 1,
-    borderColor: "#282A3A",
+    borderColor: colors.line,
   },
   statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "#00E699",
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.matcha,
     marginRight: 6,
   },
   statusText: {
-    fontSize: 11,
+    fontSize: typography.size.caption,
     fontFamily: "monospace",
-    color: "#9EA2B6",
-    fontWeight: "600",
+    color: colors.inkSoft,
+    fontWeight: typography.weight.semibold,
   },
   screenContainer: {
     flex: 1,
+    backgroundColor: colors.paper,
   },
   bottomTabs: {
     flexDirection: "row",
-    height: 64,
-    backgroundColor: "#12141F",
+    height: 60,
+    backgroundColor: colors.card,
     borderTopWidth: 1,
-    borderTopColor: "#202334",
-    paddingHorizontal: 16,
-    paddingBottom: 6,
-    paddingTop: 6,
+    borderTopColor: colors.line,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xs,
+    paddingTop: spacing.xs,
   },
   tabButton: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    borderRadius: 12,
+    borderRadius: radius.md,
+    position: "relative",
   },
   tabButtonActive: {
-    backgroundColor: "rgba(255, 51, 102, 0.12)",
-  },
-  tabIcon: {
-    fontSize: 20,
-    opacity: 0.5,
-  },
-  tabIconActive: {
-    opacity: 1,
+    backgroundColor: colors.vermillionTint,
   },
   tabLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#6B728E",
-    marginTop: 2,
+    fontSize: typography.size.caption,
+    fontWeight: typography.weight.heavy,
+    color: colors.inkSoft,
+    letterSpacing: typography.tracking.caps,
   },
   tabLabelActive: {
-    color: "#FF3366",
-    fontWeight: "700",
+    color: colors.vermillion,
+  },
+  activeIndicator: {
+    position: "absolute",
+    bottom: 4,
+    width: 24,
+    height: 2,
+    backgroundColor: colors.vermillion,
+    borderRadius: 1,
   },
 });

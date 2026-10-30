@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -6,42 +6,78 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
-  Alert,
+  Animated,
+  ActivityIndicator,
 } from "react-native";
 import { Event } from "../types";
 import { fetchApi, ApiError } from "../api/client";
 import { QtyPicker } from "../components/QtyPicker";
-import { LoadingView } from "../components/LoadingView";
 import { ErrorView } from "../components/ErrorView";
+import { EventCardSkeleton } from "../components/EventCardSkeleton";
+import { colors, radius, spacing, typography, motion } from "../theme";
 
 interface Props {
   onBookingSuccess?: () => void;
   activeUserId: number;
 }
 
+// Stale-While-Revalidate module-level cache (TTL 30s)
+let eventsCache: { data: Event[]; timestamp: number } | null = null;
+const CACHE_TTL_MS = 30000;
+
 export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
+  const initialEvents = eventsCache ? eventsCache.data : [];
+  const [events, setEvents] = useState<Event[]>(initialEvents);
+  const [loading, setLoading] = useState(initialEvents.length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<{ message: string; code?: string } | null>(null);
   const [bookingEventId, setBookingEventId] = useState<number | null>(null);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
-  const [bannerMessage, setBannerMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [banner, setBanner] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
+  // Banner slide-down animation
+  const bannerAnim = useRef(new Animated.Value(0)).current;
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showBanner = (text: string, type: "success" | "error") => {
+    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    setBanner({ text, type });
+    bannerAnim.setValue(0);
+    Animated.timing(bannerAnim, {
+      toValue: 1,
+      duration: motion.duration.banner,
+      useNativeDriver: true,
+    }).start();
+
+    bannerTimerRef.current = setTimeout(() => {
+      Animated.timing(bannerAnim, {
+        toValue: 0,
+        duration: motion.duration.banner,
+        useNativeDriver: true,
+      }).start(() => setBanner(null));
+    }, motion.timing.bannerDismiss);
+  };
 
   const loadEvents = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+    if (isRefresh) {
+      setRefreshing(true);
+    } else if (events.length === 0) {
+      setLoading(true);
+    }
     setError(null);
 
     try {
       const data = await fetchApi<Event[]>("/events");
+      eventsCache = { data, timestamp: Date.now() };
       setEvents(data);
-      // Initialize default quantities
-      const initialQtys: Record<number, number> = {};
-      data.forEach((evt) => {
-        initialQtys[evt.id] = 1;
+
+      setQuantities((prev) => {
+        const next: Record<number, number> = { ...prev };
+        data.forEach((evt) => {
+          if (!next[evt.id]) next[evt.id] = 1;
+        });
+        return next;
       });
-      setQuantities((prev) => ({ ...initialQtys, ...prev }));
     } catch (err: any) {
       if (err instanceof ApiError) {
         setError({ message: err.message, code: err.code });
@@ -52,11 +88,23 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [events.length]);
 
   useEffect(() => {
-    loadEvents();
-  }, [loadEvents]);
+    // SWR: If cache exists and is fresh (< 30s), render immediately & refresh silently
+    const isFresh = eventsCache && Date.now() - eventsCache.timestamp < CACHE_TTL_MS;
+    if (isFresh) {
+      setEvents(eventsCache!.data);
+      setLoading(false);
+      // Silent background validation
+      loadEvents(false);
+    } else {
+      loadEvents(false);
+    }
+    return () => {
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    };
+  }, []);
 
   const handleQtyChange = (eventId: number, qty: number) => {
     setQuantities((prev) => ({ ...prev, [eventId]: qty }));
@@ -65,7 +113,6 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
   const handleBook = async (event: Event) => {
     const qty = quantities[event.id] || 1;
     setBookingEventId(event.id);
-    setBannerMessage(null);
 
     try {
       const res = await fetchApi<{ tickets: any[] }>(`/events/${event.id}/book`, {
@@ -74,32 +121,45 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
       });
 
       const count = res.tickets?.length || qty;
-      setBannerMessage({
-        type: "success",
-        text: `Successfully booked ${count} ticket${count > 1 ? "s" : ""}! View in "My Tickets" tab.`,
-      });
 
-      // Refresh events inventory
-      await loadEvents(true);
+      // Micro-optimism: local decrement of ticketsLeft ONLY AFTER 201 response arrives
+      setEvents((prevEvents) =>
+        prevEvents.map((e) =>
+          e.id === event.id
+            ? { ...e, ticketsLeft: Math.max(0, e.ticketsLeft - count) }
+            : e
+        )
+      );
+
+      showBanner(
+        `Reserved ${count} ticket${count > 1 ? "s" : ""} successfully. Ready in My Tickets.`,
+        "success"
+      );
+
+      // Background silent refetch to reconcile truthfully with database
+      loadEvents(false);
 
       if (onBookingSuccess) {
         onBookingSuccess();
       }
     } catch (err: any) {
       const msg = err instanceof ApiError ? err.message : "Booking could not be completed";
-      setBannerMessage({
-        type: "error",
-        text: msg,
-      });
-      // Refresh to reflect truthfully updated inventory
-      await loadEvents(true);
+      showBanner(msg, "error");
+      // Reconcile truthful stock on error
+      loadEvents(false);
     } finally {
       setBookingEventId(null);
     }
   };
 
-  if (loading && !refreshing) {
-    return <LoadingView message="Loading available events..." />;
+  if (loading && events.length === 0) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.listContent}>
+          <EventCardSkeleton />
+        </View>
+      </View>
+    );
   }
 
   if (error && events.length === 0) {
@@ -115,18 +175,35 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
 
   return (
     <View style={styles.container}>
-      {bannerMessage && (
-        <View
+      {/* Animated Slide-down Notification Banner */}
+      {banner && (
+        <Animated.View
           style={[
-            styles.banner,
-            bannerMessage.type === "success" ? styles.bannerSuccess : styles.bannerError,
+            styles.bannerContainer,
+            banner.type === "success" ? styles.bannerSuccess : styles.bannerError,
+            {
+              opacity: bannerAnim,
+              transform: [
+                {
+                  translateY: bannerAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-20, 0],
+                  }),
+                },
+              ],
+            },
           ]}
         >
-          <Text style={styles.bannerText}>
-            {bannerMessage.type === "success" ? "✓ " : "✕ "}
-            {bannerMessage.text}
+          <Text
+            style={[
+              styles.bannerText,
+              banner.type === "success" ? styles.bannerTextSuccess : styles.bannerTextError,
+            ]}
+          >
+            {banner.type === "success" ? "CONFIRMED — " : "FAILED — "}
+            {banner.text}
           </Text>
-        </View>
+        </Animated.View>
       )}
 
       <FlatList
@@ -137,202 +214,347 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => loadEvents(true)}
-            tintColor="#FF3366"
-            colors={["#FF3366"]}
+            tintColor={colors.vermillion}
+            colors={[colors.vermillion]}
           />
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No upcoming events found.</Text>
+            <Text style={styles.emptyLabel}>NO EVENTS AVAILABLE</Text>
+            <Text style={styles.emptySubtext}>Check back soon for new fan fest dates.</Text>
           </View>
         }
-        renderItem={({ item }) => {
-          const isSoldOut = item.ticketsLeft <= 0;
-          const isBookingThis = bookingEventId === item.id;
-          const selectedQty = quantities[item.id] || 1;
-          const eventDate = new Date(item.date);
-
-          return (
-            <View style={styles.eventCard}>
-              {/* Header Badges */}
-              <View style={styles.badgeRow}>
-                {isSoldOut ? (
-                  <View style={styles.soldOutBadge}>
-                    <Text style={styles.soldOutText}>● SOLD OUT</Text>
-                  </View>
-                ) : (
-                  <View style={styles.stockBadge}>
-                    <Text style={styles.stockText}>
-                      🔥 {item.ticketsLeft} TICKET{item.ticketsLeft > 1 ? "S" : ""} LEFT
-                    </Text>
-                  </View>
-                )}
-                <Text style={styles.priceTag}>¥{Number(item.price).toLocaleString()}</Text>
-              </View>
-
-              {/* Title & Info */}
-              <Text style={styles.title}>{item.name}</Text>
-              <Text style={styles.venue}>📍 {item.venue}</Text>
-              <Text style={styles.date}>
-                🗓️ {eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
-              </Text>
-
-              {/* Booking Controls */}
-              {!isSoldOut && (
-                <QtyPicker
-                  value={selectedQty}
-                  onChange={(q) => handleQtyChange(item.id, q)}
-                  max={Math.min(4, item.ticketsLeft)}
-                  disabled={isBookingThis}
-                />
-              )}
-
-              {/* Book Button */}
-              <TouchableOpacity
-                style={[
-                  styles.bookButton,
-                  isSoldOut && styles.bookButtonDisabled,
-                  isBookingThis && styles.bookButtonInFlight,
-                ]}
-                onPress={() => handleBook(item)}
-                disabled={isSoldOut || isBookingThis}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.bookButtonText}>
-                  {isBookingThis
-                    ? "RESERVING..."
-                    : isSoldOut
-                    ? "SOLD OUT"
-                    : `BOOK ${selectedQty} TICKET${selectedQty > 1 ? "S" : ""}`}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          );
-        }}
+        renderItem={({ item, index }) => (
+          <EventCardItem
+            item={item}
+            index={index}
+            isBooking={bookingEventId === item.id}
+            selectedQty={quantities[item.id] || 1}
+            onQtyChange={(q) => handleQtyChange(item.id, q)}
+            onBook={() => handleBook(item)}
+          />
+        )}
       />
     </View>
+  );
+}
+
+// Individual Event Card with entrance stagger, press-scale, and stock number animation
+interface CardProps {
+  item: Event;
+  index: number;
+  isBooking: boolean;
+  selectedQty: number;
+  onQtyChange: (qty: number) => void;
+  onBook: () => void;
+}
+
+function EventCardItem({
+  item,
+  index,
+  isBooking,
+  selectedQty,
+  onQtyChange,
+  onBook,
+}: CardProps) {
+  const isSoldOut = item.ticketsLeft <= 0;
+  const eventDate = new Date(item.date);
+  const formattedDate = eventDate.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  // Entrance stagger animation (capped at 5 items)
+  const entranceAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const delay = Math.min(index, 4) * motion.delay.staggerPerItem;
+    Animated.timing(entranceAnim, {
+      toValue: 1,
+      duration: motion.duration.stagger,
+      delay,
+      useNativeDriver: true,
+    }).start();
+  }, [entranceAnim, index]);
+
+  // Stock change cross-fade animation
+  const stockAnim = useRef(new Animated.Value(1)).current;
+  const prevStockRef = useRef(item.ticketsLeft);
+  useEffect(() => {
+    if (prevStockRef.current !== item.ticketsLeft) {
+      prevStockRef.current = item.ticketsLeft;
+      Animated.sequence([
+        Animated.timing(stockAnim, { toValue: 0.2, duration: motion.duration.crossFade / 2, useNativeDriver: true }),
+        Animated.timing(stockAnim, { toValue: 1, duration: motion.duration.crossFade / 2, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [item.ticketsLeft, stockAnim]);
+
+  // Button press scale feedback
+  const buttonScale = useRef(new Animated.Value(1)).current;
+  const handlePressIn = () => {
+    Animated.timing(buttonScale, {
+      toValue: motion.scale.press,
+      duration: motion.duration.press,
+      useNativeDriver: true,
+    }).start();
+  };
+  const handlePressOut = () => {
+    Animated.timing(buttonScale, {
+      toValue: 1,
+      duration: motion.duration.press,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <Animated.View
+      style={[
+        styles.eventCard,
+        {
+          opacity: entranceAnim,
+          transform: [
+            {
+              translateY: entranceAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [12, 0],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      {/* Header Row: Stock badge + Price in ink */}
+      <View style={styles.badgeRow}>
+        {isSoldOut ? (
+          <View style={styles.soldOutBadge}>
+            <Text style={styles.soldOutText}>SOLD OUT</Text>
+          </View>
+        ) : (
+          <Animated.View style={[styles.stockBadge, { opacity: stockAnim }]}>
+            <Text style={styles.stockText}>
+              {item.ticketsLeft} TICKET{item.ticketsLeft > 1 ? "S" : ""} LEFT
+            </Text>
+          </Animated.View>
+        )}
+
+        {/* Price strictly in ink (vermillion reserved for actions) */}
+        <Text style={styles.priceTag}>¥{Number(item.price).toLocaleString()}</Text>
+      </View>
+
+      {/* Title */}
+      <Text style={styles.title}>{item.name}</Text>
+
+      {/* Labeled Meta Rows (No emoji per G3) */}
+      <View style={styles.metaRow}>
+        <Text style={styles.metaLabel}>VENUE</Text>
+        <Text style={styles.metaValue}>{item.venue}</Text>
+      </View>
+      <View style={styles.metaRow}>
+        <Text style={styles.metaLabel}>DATE</Text>
+        <Text style={styles.metaValue}>{formattedDate}</Text>
+      </View>
+
+      {/* Booking Controls */}
+      {!isSoldOut && (
+        <QtyPicker
+          value={selectedQty}
+          onChange={onQtyChange}
+          max={Math.min(4, item.ticketsLeft)}
+          disabled={isBooking}
+        />
+      )}
+
+      {/* Book Button with press scale and in-flight spinner */}
+      <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+        <TouchableOpacity
+          style={[
+            styles.bookButton,
+            isSoldOut && styles.bookButtonDisabled,
+          ]}
+          onPress={onBook}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          disabled={isSoldOut || isBooking}
+          activeOpacity={motion.opacity.press}
+          accessibilityRole="button"
+          accessibilityLabel={isSoldOut ? "Event sold out" : `Book ${selectedQty} tickets for ${item.name}`}
+        >
+          {isBooking ? (
+            <View style={styles.buttonInnerRow}>
+              <ActivityIndicator size="small" color={colors.card} style={styles.spinner} />
+              <Text style={styles.bookButtonText}>RESERVING...</Text>
+            </View>
+          ) : (
+            <Text
+              style={[
+                styles.bookButtonText,
+                isSoldOut && styles.bookButtonTextDisabled,
+              ]}
+            >
+              {isSoldOut
+                ? "SOLD OUT"
+                : `BOOK ${selectedQty} TICKET${selectedQty > 1 ? "S" : ""}`}
+            </Text>
+          )}
+        </TouchableOpacity>
+      </Animated.View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0D0E15",
+    backgroundColor: colors.paper,
   },
   listContent: {
-    padding: 16,
-    paddingBottom: 40,
+    padding: spacing.lg,
+    paddingBottom: spacing.xxxl,
   },
-  banner: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 12,
+  bannerContainer: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+    borderWidth: 1,
   },
   bannerSuccess: {
-    backgroundColor: "rgba(0, 230, 153, 0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(0, 230, 153, 0.4)",
+    backgroundColor: colors.matchaTint,
+    borderColor: colors.matchaBorder,
   },
   bannerError: {
-    backgroundColor: "rgba(255, 75, 75, 0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 75, 75, 0.4)",
+    backgroundColor: colors.errorTint,
+    borderColor: colors.vermillionBorder,
   },
   bannerText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: typography.size.sub,
+    fontWeight: typography.weight.bold,
     textAlign: "center",
+    letterSpacing: typography.tracking.wide,
+  },
+  bannerTextSuccess: {
+    color: colors.matcha,
+  },
+  bannerTextError: {
+    color: colors.vermillion,
   },
   eventCard: {
-    backgroundColor: "#161824",
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
+    backgroundColor: colors.card,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: "#26293A",
+    borderColor: colors.line,
   },
   badgeRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: spacing.sm,
   },
   stockBadge: {
-    backgroundColor: "rgba(255, 51, 102, 0.15)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    backgroundColor: colors.vermillionTint,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: "rgba(255, 51, 102, 0.3)",
+    borderColor: colors.vermillionBorder,
   },
   stockText: {
-    color: "#FF3366",
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 0.5,
+    color: colors.vermillion,
+    fontSize: typography.size.caption,
+    fontWeight: typography.weight.heavy,
+    letterSpacing: typography.tracking.caps,
   },
   soldOutBadge: {
-    backgroundColor: "rgba(107, 114, 142, 0.15)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    backgroundColor: colors.paper,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: "rgba(107, 114, 142, 0.3)",
+    borderColor: colors.line,
   },
   soldOutText: {
-    color: "#8B92AB",
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 0.5,
+    color: colors.inkSoft,
+    fontSize: typography.size.caption,
+    fontWeight: typography.weight.bold,
+    letterSpacing: typography.tracking.caps,
   },
   priceTag: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#00E699",
+    fontSize: typography.size.title,
+    fontWeight: typography.weight.heavy,
+    color: colors.ink,
   },
   title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginBottom: 6,
+    fontSize: typography.size.title + 2,
+    fontWeight: typography.weight.heavy,
+    color: colors.ink,
+    marginBottom: spacing.sm,
+    letterSpacing: typography.tracking.tight,
   },
-  venue: {
-    fontSize: 14,
-    color: "#9EA2B6",
-    marginBottom: 4,
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginBottom: 2,
   },
-  date: {
-    fontSize: 13,
-    color: "#6B728E",
-    marginBottom: 8,
+  metaLabel: {
+    width: 55,
+    fontSize: typography.size.micro,
+    fontWeight: typography.weight.heavy,
+    color: colors.inkSoft,
+    letterSpacing: typography.tracking.caps,
+  },
+  metaValue: {
+    flex: 1,
+    fontSize: typography.size.body,
+    fontWeight: typography.weight.medium,
+    color: colors.ink,
   },
   bookButton: {
-    backgroundColor: "#FF3366",
-    paddingVertical: 14,
-    borderRadius: 14,
+    backgroundColor: colors.vermillion,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
     alignItems: "center",
-    marginTop: 8,
+    marginTop: spacing.sm,
   },
   bookButtonDisabled: {
-    backgroundColor: "#222533",
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
   },
-  bookButtonInFlight: {
-    opacity: 0.7,
+  buttonInnerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  spinner: {
+    marginRight: spacing.sm,
   },
   bookButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.5,
+    color: colors.card,
+    fontSize: typography.size.body,
+    fontWeight: typography.weight.heavy,
+    letterSpacing: typography.tracking.caps,
+  },
+  bookButtonTextDisabled: {
+    color: colors.inkSoft,
   },
   emptyContainer: {
     alignItems: "center",
-    paddingTop: 60,
+    paddingTop: 80,
   },
-  emptyText: {
-    color: "#6B728E",
-    fontSize: 15,
+  emptyLabel: {
+    color: colors.inkSoft,
+    fontSize: typography.size.sub,
+    fontWeight: typography.weight.bold,
+    letterSpacing: typography.tracking.caps,
+    marginBottom: spacing.xs,
+  },
+  emptySubtext: {
+    color: colors.inkSoft,
+    fontSize: typography.size.body,
   },
 });

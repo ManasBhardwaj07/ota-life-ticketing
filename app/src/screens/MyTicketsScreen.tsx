@@ -10,8 +10,9 @@ import {
 import { Ticket } from "../types";
 import { fetchApi, ApiError } from "../api/client";
 import { TicketCard } from "../components/TicketCard";
-import { LoadingView } from "../components/LoadingView";
+import { TicketCardSkeleton } from "../components/TicketCardSkeleton";
 import { ErrorView } from "../components/ErrorView";
+import { colors, radius, spacing, typography } from "../theme";
 
 interface Props {
   activeUserId: number;
@@ -25,8 +26,11 @@ export function MyTicketsScreen({ activeUserId, onExploreEvents }: Props) {
   const [error, setError] = useState<{ message: string; code?: string } | null>(null);
 
   const loadTickets = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
 
     try {
@@ -49,8 +53,14 @@ export function MyTicketsScreen({ activeUserId, onExploreEvents }: Props) {
     loadTickets();
   }, [loadTickets, activeUserId]);
 
-  if (loading && !refreshing) {
-    return <LoadingView message="Loading your tickets..." />;
+  if (loading && !refreshing && tickets.length === 0) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.listContent}>
+          <TicketCardSkeleton />
+        </View>
+      </View>
+    );
   }
 
   if (error && tickets.length === 0) {
@@ -74,8 +84,8 @@ export function MyTicketsScreen({ activeUserId, onExploreEvents }: Props) {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => loadTickets(true)}
-            tintColor="#FF3366"
-            colors={["#FF3366"]}
+            tintColor={colors.vermillion}
+            colors={[colors.vermillion]}
           />
         }
         ListHeaderComponent={
@@ -83,27 +93,35 @@ export function MyTicketsScreen({ activeUserId, onExploreEvents }: Props) {
             <View style={styles.header}>
               <Text style={styles.headerTitle}>YOUR PASSES ({tickets.length})</Text>
               <Text style={styles.headerSubtitle}>
-                Pull down to refresh scan status after gate check-in.
+                Pull down to refresh gate scan status after entry.
               </Text>
             </View>
           ) : undefined
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconCircle}>
-              <Text style={styles.emptyIcon}>🎟️</Text>
+            {/* Labeled glyph box replacing emoji per G3 */}
+            <View style={styles.glyphBox}>
+              <View style={styles.ticketStubOutline}>
+                <View style={styles.stubHole} />
+                <View style={styles.stubLine} />
+              </View>
             </View>
-            <Text style={styles.emptyTitle}>No Tickets Yet</Text>
+
+            <Text style={styles.emptyTitle}>NO TICKETS FOUND</Text>
             <Text style={styles.emptySubtitle}>
-              You haven't booked any tickets under this identity (#{activeUserId}). Book tickets from the Events tab or switch users.
+              No admissions are currently registered under Fan #{activeUserId}. Book your ticket from the Events tab.
             </Text>
+
             {onExploreEvents && (
               <TouchableOpacity
                 style={styles.exploreButton}
                 onPress={onExploreEvents}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Browse upcoming events"
               >
-                <Text style={styles.exploreButtonText}>Browse Events</Text>
+                <Text style={styles.exploreButtonText}>BROWSE EVENTS</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -117,67 +135,88 @@ export function MyTicketsScreen({ activeUserId, onExploreEvents }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0D0E15",
+    backgroundColor: colors.paper,
   },
   listContent: {
-    padding: 16,
-    paddingBottom: 40,
+    padding: spacing.lg,
+    paddingBottom: spacing.xxxl,
   },
   header: {
-    marginBottom: 8,
+    marginBottom: spacing.md,
   },
   headerTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#6B728E",
-    letterSpacing: 1,
+    fontSize: typography.size.caption,
+    fontWeight: typography.weight.heavy,
+    color: colors.inkSoft,
+    letterSpacing: typography.tracking.caps,
   },
   headerSubtitle: {
-    fontSize: 12,
-    color: "#9EA2B6",
+    fontSize: typography.size.sub,
+    color: colors.inkSoft,
     marginTop: 2,
   },
   emptyContainer: {
     alignItems: "center",
     paddingTop: 80,
-    paddingHorizontal: 24,
+    paddingHorizontal: spacing.xxl,
   },
-  emptyIconCircle: {
+  glyphBox: {
     width: 64,
     height: 64,
-    borderRadius: 32,
-    backgroundColor: "#161824",
+    borderRadius: radius.xl,
+    backgroundColor: colors.card,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: spacing.xl,
     borderWidth: 1,
-    borderColor: "#282A3A",
+    borderColor: colors.line,
   },
-  emptyIcon: {
-    fontSize: 30,
+  ticketStubOutline: {
+    width: 34,
+    height: 22,
+    borderRadius: radius.xs,
+    borderWidth: 1.5,
+    borderColor: colors.inkSoft,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 4,
+  },
+  stubHole: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: colors.inkSoft,
+  },
+  stubLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.line,
+    marginLeft: 4,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginBottom: 8,
+    fontSize: typography.size.title,
+    fontWeight: typography.weight.heavy,
+    color: colors.ink,
+    letterSpacing: typography.tracking.tight,
+    marginBottom: spacing.sm,
   },
   emptySubtitle: {
-    fontSize: 14,
-    color: "#9EA2B6",
+    fontSize: typography.size.body,
+    color: colors.inkSoft,
     textAlign: "center",
     lineHeight: 20,
-    marginBottom: 24,
+    marginBottom: spacing.xxl,
   },
   exploreButton: {
-    backgroundColor: "#FF3366",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    backgroundColor: colors.vermillion,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xxl,
+    borderRadius: radius.md,
   },
   exploreButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
+    color: colors.card,
+    fontSize: typography.size.sub,
+    fontWeight: typography.weight.heavy,
+    letterSpacing: typography.tracking.caps,
   },
 });

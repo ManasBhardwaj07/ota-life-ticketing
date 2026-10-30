@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
+import { colors, spacing, typography } from "../theme";
 
 interface Props {
   message?: string;
@@ -8,7 +9,7 @@ interface Props {
 export function LoadingView({ message = "Loading..." }: Props) {
   return (
     <View style={styles.container}>
-      <ActivityIndicator size="large" color="#FF3366" />
+      <ActivityIndicator size="large" color={colors.vermillion} />
       <Text style={styles.text}>{message}</Text>
     </View>
   );
@@ -19,14 +20,14 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
-    backgroundColor: "#0D0E15",
+    padding: spacing.xxl,
+    backgroundColor: colors.paper,
   },
   text: {
-    marginTop: 16,
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#9EA2B6",
-    letterSpacing: 0.3,
+    marginTop: spacing.lg,
+    fontSize: typography.size.bodyLarge,
+    fontWeight: typography.weight.medium,
+    color: colors.inkSoft,
+    letterSpacing: typography.tracking.normal,
   },
 });

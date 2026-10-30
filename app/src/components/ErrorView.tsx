@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { colors, radius, spacing, typography } from "../theme";
 
 interface Props {
   title?: string;
@@ -17,8 +18,9 @@ export function ErrorView({
   return (
     <View style={styles.container}>
       <View style={styles.card}>
-        <View style={styles.iconCircle}>
-          <Text style={styles.iconText}>⚠️</Text>
+        {/* Semantic notice pill (No emoji per G3) */}
+        <View style={styles.noticePill}>
+          <Text style={styles.noticePillText}>ATTENTION</Text>
         </View>
 
         <Text style={styles.title}>{title}</Text>
@@ -35,6 +37,8 @@ export function ErrorView({
             style={styles.retryButton}
             onPress={onRetry}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Try again"
           >
             <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
@@ -49,68 +53,73 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
-    backgroundColor: "#0D0E15",
+    padding: spacing.xxl,
+    backgroundColor: colors.paper,
   },
   card: {
     width: "100%",
     maxWidth: 380,
-    backgroundColor: "#161824",
-    borderRadius: 20,
-    padding: 24,
+    backgroundColor: colors.card,
+    borderRadius: radius.xl,
+    padding: spacing.xxl,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#282A3A",
+    borderColor: colors.line,
   },
-  iconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "rgba(255, 75, 75, 0.12)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 16,
+  noticePill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+    backgroundColor: colors.vermillionTint,
+    borderWidth: 1,
+    borderColor: colors.vermillionBorder,
+    marginBottom: spacing.lg,
   },
-  iconText: {
-    fontSize: 26,
+  noticePillText: {
+    fontSize: typography.size.caption,
+    fontWeight: typography.weight.bold,
+    color: colors.vermillion,
+    letterSpacing: typography.tracking.caps,
   },
   title: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    marginBottom: 8,
+    fontSize: typography.size.title,
+    fontWeight: typography.weight.bold,
+    color: colors.ink,
+    marginBottom: spacing.sm,
     textAlign: "center",
   },
   message: {
-    fontSize: 14,
-    color: "#9EA2B6",
+    fontSize: typography.size.body,
+    color: colors.inkSoft,
     textAlign: "center",
     lineHeight: 20,
-    marginBottom: 14,
+    marginBottom: spacing.md,
   },
   codeBadge: {
-    backgroundColor: "#202334",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-    marginBottom: 20,
+    backgroundColor: colors.paper,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.xs,
+    borderWidth: 1,
+    borderColor: colors.line,
+    marginBottom: spacing.xl,
   },
   codeText: {
-    fontSize: 12,
+    fontSize: typography.size.sub,
     fontFamily: "monospace",
-    color: "#FF6B6B",
-    fontWeight: "600",
+    color: colors.ink,
+    fontWeight: typography.weight.semibold,
   },
   retryButton: {
-    backgroundColor: "#FF3366",
-    paddingVertical: 12,
-    paddingHorizontal: 28,
-    borderRadius: 12,
+    backgroundColor: colors.vermillion,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xxl,
+    borderRadius: radius.md,
   },
   retryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: 0.3,
+    color: colors.card,
+    fontSize: typography.size.body,
+    fontWeight: typography.weight.bold,
+    letterSpacing: typography.tracking.wide,
   },
 });

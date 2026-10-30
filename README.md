@@ -1,136 +1,74 @@
 # Ota Life Mini Ticketing
 
-> **One sentence:** A fan can always see truthful inventory, can only book tickets that actually exist, and can only enter the venue once — even under concurrent requests.
+> A fan can always see truthful inventory, can only book tickets that actually exist, and can only enter the venue once — even under concurrent requests.
 
 ---
 
-## 📱 App Walkthrough & Visual Proof (In Order)
+## 📱 App Walkthrough & Visual Proof
 
 | 1. Events & Stock | 2. Booking Flow & Banner | 3. Active Ticket & QR Code |
 |:---:|:---:|:---:|
 | <img src="docs/screenshots/01_events_screen.png" width="250" alt="Events Screen" /> | <img src="docs/screenshots/02_booking_flow.png" width="250" alt="Booking Flow" /> | <img src="docs/screenshots/03_my_tickets_active.png" width="250" alt="Active Ticket" /> |
-| **Initial State:** Naruto (`#1`), 2 tickets left, warm paper palette | **Micro-Optimism:** Local decrement post-201 & slide-down banner | **Admission:** Matcha green `ADMIT ONE` badge & quiet-zone QR |
+| **Initial State:** Naruto (`#1`), 2 tickets left, paper theme | **Micro-Optimism:** Local decrement post-201 & slide banner | **Admission:** Matcha green `ADMIT ONE` badge & quiet-zone QR |
 
-| 4. Gate Check-in | 5. Sold Out State | 6. Offline Error Pop-up |
+| 4. Gate Check-in | 5. Sold Out State | 6. Offline Error Handling |
 |:---:|:---:|:---:|
 | <img src="docs/screenshots/04_ticket_checked_in.png" width="250" alt="Checked In Ticket" /> | <img src="docs/screenshots/05_sold_out_state.png" width="250" alt="Sold Out State" /> | <img src="docs/screenshots/06_network_resilience.png" width="250" alt="Offline Error Pop-up" /> |
 | **Entry Complete:** Amber `CHECKED IN` + gate scan timestamp | **Truthful Inventory:** `SOLD OUT` badge & disabled button | **Network Resilience:** Modal error dialog + status banner |
 
 ---
 
-## 🏗️ Architecture & Technology Stack
+## 🔒 How Overselling is Prevented
 
-- **API:** Node.js (v24), TypeScript, Express 4, Prisma ORM 6, MySQL 8 (InnoDB row locking)
-- **Mobile App:** React Native, Expo SDK 58 (blank-typescript), `react-native-qrcode-svg`
-- **Networking:** USB via ADB reverse port forwarding (`127.0.0.1:3000` API, `127.0.0.1:8081` Metro)
-- **Tests:** Jest + ts-jest concurrency test suite (`api/test/oversell.test.ts`)
+Overselling is prevented via a **single conditional atomic `UPDATE` executed inside an ACID transaction**:
 
-```
-ota-life-ticketing/
-├── api/
-│   ├── prisma/
-│   │   ├── schema.prisma         # Event, User, Ticket models with @unique code
-│   │   ├── seed.ts               # 3 users, 1 event with EXACTLY 2 tickets left
-│   │   └── migrations/           # Version-controlled SQL migration
-│   ├── src/
-│   │   ├── index.ts              # Bootstrap only (binds 0.0.0.0:3000)
-│   │   ├── app.ts                # Express app, middleware pipeline, routers
-│   │   ├── routes/               # events.ts, tickets.ts, checkins.ts
-│   │   ├── services/             # booking.ts, checkin.ts, events.ts
-│   │   ├── middleware/           # userId.ts (401 validation), errorHandler.ts, notFound.ts
-│   │   └── lib/                  # prisma.ts, ticketCode.ts (CSPRNG), errors.ts
-│   ├── scripts/                  # verify-rollback.ts (Attack A2)
-│   ├── test/                     # oversell.test.ts (Jest parallel concurrency attack)
-│   ├── .env.example
-│   └── package.json
-├── app/
-│   ├── App.tsx                   # Safe area, User Switcher, text-only bottom tab navigator
-│   ├── src/
-│   │   ├── api/
-│   │   │   ├── config.ts         # API_BASE_URL = http://127.0.0.1:3000 (sole source of truth)
-│   │   │   └── client.ts         # Fetch client injecting X-User-Id with typed errors
-│   │   ├── screens/              # EventsScreen.tsx, MyTicketsScreen.tsx
-│   │   ├── components/           # TicketCard.tsx, QtyPicker.tsx, ErrorView.tsx, UserSwitcher.tsx, EventCardSkeleton.tsx, TicketCardSkeleton.tsx
-│   │   ├── theme.ts              # Semantic light tokens (paper, ink, vermillion, matcha, amber)
-│   │   └── types.ts
-│   └── package.json
-└── README.md
-```
-
----
-
-## 🔒 Concurrency & Invariant Mechanics
-
-### How Overselling is Prevented (R1)
-Overselling is prevented via a **single conditional atomic `UPDATE ... WHERE ticketsLeft >= ?` executed inside an ACID transaction (`prisma.$transaction`)**:
 ```sql
 UPDATE `Event`
 SET `ticketsLeft` = `ticketsLeft` - ?
 WHERE `id` = ? AND `ticketsLeft` >= ?;
 ```
-**Why this is safe:**
-The `WHERE` clause check and the decrement happen in the **exact same statement under an InnoDB row-level write lock**. Concurrent transactions serialize at the row lock. The losing transaction re-evaluates `ticketsLeft >= ?` against the updated stock, finds 0 affected rows, and immediately aborts with `409 Conflict (SOLD_OUT)`. There is never an instant where a dirty or stale read occurs (no TOCTOU vulnerability). The surrounding transaction pairs decrement with ticket creation (`createMany`) so both commit or roll back together.
 
-### How Single-Use Check-In is Enforced (R2)
-Gate check-in uses a conditional atomic `updateMany` filtering on unconsumed tickets:
+- **Row-Level Serialization:** The decrement and condition check run in the exact same statement under an InnoDB row-level write lock. Concurrent requests serialize at the database row.
+- **Atomic Abort on Depletion:** Losing transactions evaluate against the updated stock, affect 0 rows, and abort immediately with `409 Conflict (SOLD_OUT)`.
+- **Transaction Pair:** Decrementing inventory and inserting ticket records (`createMany`) commit or roll back wholly together.
+
+### How Single Check-In is Enforced
+Gate admission executes a conditional atomic update filtering on unconsumed tickets:
 ```sql
-UPDATE `Ticket`
-SET `checkedInAt` = ?
-WHERE `code` = ? AND `checkedInAt` IS NULL;
+UPDATE `Ticket` SET `checkedInAt` = ? WHERE `code` = ? AND `checkedInAt` IS NULL;
 ```
-- **Winner:** Row count is `1` -> returns `200 OK` with the check-in timestamp.
-- **Loser / Replay:** Row count is `0`. The transaction performs a stable read of the ticket row:
-  - If ticket doesn't exist -> `404 Not Found`.
-  - If ticket already used -> `409 Conflict (ALREADY_CHECKED_IN)` returning the **exact original timestamp written by the winner**. The database alone decides the winner.
-
-### Idempotency: The Honest Position
-> **"Booking is ATOMIC (concurrent requests cannot oversell) but not IDEMPOTENT (a client retry of the same request may create another booking). Recovery path: `GET /me/tickets`. This mirrors IRCTC's documented policy (retries are fresh bookings) and BookMyShow's (documented recovery via booking history). A full idempotency-key mechanism (client key + unique-key table + transactional insert, as used by Stripe) was out of scope; if payments were added it would become mandatory."**
-
-### Client Timeout Policy on Non-Idempotent Writes
-To safeguard the atomic-but-non-idempotent invariant:
-- **`GET` Reads (`/events`, `/me/tickets`):** Enforce an aggressive 10-second `AbortController` timeout to fail fast on dead network connections.
-- **`POST` Writes (`/events/:id/book`):** Are explicitly **exempt from short client abort timeouts** (default `timeoutMs: null`). Under intense concurrency, transactions serialize and wait on InnoDB's row-level write lock (MySQL default `innodb_lock_wait_timeout = 50s`). An aggressive client abort would trigger a premature `NETWORK_ERROR` while the server may commit moments later—creating an ambiguous outcome where an unguided user retry could duplicate an unwanted booking. An honest spinner awaiting authoritative server resolution strictly preserves transactional trust.
+- **Winner:** Affects 1 row -> returns `200 OK` with the check-in timestamp.
+- **Replays:** Affect 0 rows -> queries existing record and returns `409 Conflict (ALREADY_CHECKED_IN)` with the original winner's timestamp.
 
 ---
 
-## ⚡ Quickstart Setup (Reviewer Step-by-Step)
+## ⚡ Quickstart Setup
 
 ### Prerequisites
 - Node.js >= 22.13 (verified with Node v24.12.0)
 - MySQL Server 8.0 running locally on port `3306`
-- Android phone with USB debugging enabled, or Android Emulator, with Expo Go installed
+- Android phone with USB debugging enabled (or Android emulator) with Expo Go
 
-### 1. Database & Backend API Setup
+### 1. Backend Setup
 ```bash
-# Clone and navigate to api directory
 cd api
-
-# Create the database in MySQL
-mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS ota_life;"
-
-# Set environment variables
 cp .env.example .env
-# Edit .env to set your MySQL password:
-# DATABASE_URL="mysql://root:<password>@localhost:3306/ota_life"
+# Set your MySQL password in .env: DATABASE_URL="mysql://root:<password>@localhost:3306/ota_life"
 
-# Install dependencies, run migrations, and seed
 npm install
 npx prisma migrate dev --name init
 npx prisma db seed
-
-# Run the API server (starts on http://0.0.0.0:3000)
 npm run dev
 ```
+*API runs on `http://0.0.0.0:3000`. Seed creates 1 event (`OTA TOKYO Fan Fest`, 2 tickets left) and 3 fans (`Naruto`, `Ichigo`, `Luffy`).*
 
 ### 2. Mobile App Setup (USB via ADB)
-Plug in your phone via USB with USB debugging enabled:
 ```bash
-# Reverse ports so device communicates over USB without Wi-Fi/LAN assumptions
+# Reverse ports so device communicates over USB (no LAN/Wi-Fi assumptions)
 adb reverse tcp:8081 tcp:8081     # Metro bundler
 adb reverse tcp:3000 tcp:3000     # Express API
 
-# Start Expo in app directory
-cd ../app
+cd app
 npm install
 npx expo start --clear
 # Press 'a' in terminal to launch in Expo Go on device
@@ -138,31 +76,12 @@ npx expo start --clear
 
 ---
 
-## 👥 Seeded Data
+## 📡 API Reference & cURL Examples
 
-### Users (Header `X-User-Id`)
-| ID | Name | Role |
-|:---|:---|:---|
-| `1` | Naruto | Fan 1 (Primary) |
-| `2` | Ichigo | Fan 2 |
-| `3` | Luffy | Fan 3 |
-
-### Event (Seeded State)
-- **ID:** `1`
-- **Name:** `OTA TOKYO Fan Fest`
-- **Venue:** `Tokyo Dome City Hall`
-- **Capacity:** `100`
-- **ticketsLeft:** **EXACTLY 2** (ready for immediate oversell race testing)
-
----
-
-## 📡 API Endpoint Reference & Verification Curls
-
-### 1. GET `/events` (Truthful Upcoming Inventory)
+### 1. `GET /events` — Upcoming Events
 ```bash
 curl -i http://localhost:3000/events
 ```
-**Response (200 OK):**
 ```json
 [
   {
@@ -176,197 +95,116 @@ curl -i http://localhost:3000/events
 ]
 ```
 
-### 2. POST `/events/:id/book` (Book Tickets)
-- Headers: `X-User-Id: 1`, `Content-Type: application/json`
-- Body: `{"quantity": 1}` (policy route guard enforces integer 1–4)
+### 2. `POST /events/:id/book` — Book Tickets
+Header `X-User-Id` specifies fan identity (`1`, `2`, or `3`). Body `quantity` is 1 to 4.
 ```bash
 curl -i -X POST http://localhost:3000/events/1/book \
   -H "X-User-Id: 1" \
   -H "Content-Type: application/json" \
   -d "{\"quantity\": 1}"
 ```
-**Response (201 Created):**
 ```json
 {
   "tickets": [
     {
-      "code": "FPvr5pj37wQ",
-      "createdAt": "2026-10-30T07:27:23.731Z",
+      "code": "LAupKs3-VLg",
+      "createdAt": "2026-10-30T10:56:25.254Z",
       "event": {
         "id": 1,
         "name": "OTA TOKYO Fan Fest",
         "venue": "Tokyo Dome City Hall",
-        "date": "2026-11-29T07:26:56.668Z"
+        "date": "2026-11-29T10:46:09.859Z"
       }
     }
   ]
 }
 ```
 
-### 3. GET `/me/tickets` (Reconciliation Read & User-Scoped)
-- Header: `X-User-Id: 1`
+### 3. `GET /me/tickets` — View My Tickets
 ```bash
 curl -i http://localhost:3000/me/tickets -H "X-User-Id: 1"
 ```
-**Response (200 OK):**
 ```json
 [
   {
-    "code": "FPvr5pj37wQ",
-    "createdAt": "2026-10-30T07:27:23.731Z",
+    "code": "LAupKs3-VLg",
+    "createdAt": "2026-10-30T10:56:25.254Z",
     "checkedInAt": null,
     "event": {
       "id": 1,
       "name": "OTA TOKYO Fan Fest",
       "venue": "Tokyo Dome City Hall",
-      "date": "2026-11-29T07:26:56.668Z"
+      "date": "2026-11-29T10:46:09.859Z"
     }
   }
 ]
 ```
 
-### 4. POST `/checkins` (Single-Use Gate Admission)
+### 4. `POST /checkins` — Gate Admission
 ```bash
 curl -i -X POST http://localhost:3000/checkins \
   -H "Content-Type: application/json" \
-  -d "{\"code\": \"FPvr5pj37wQ\"}"
+  -d "{\"code\": \"LAupKs3-VLg\"}"
 ```
-**First Scan Response (200 OK):**
+**First Scan (200 OK):**
 ```json
 {
-  "code": "FPvr5pj37wQ",
-  "checkedInAt": "2026-10-30T07:28:58.728Z"
+  "code": "LAupKs3-VLg",
+  "checkedInAt": "2026-10-30T10:56:25.304Z"
 }
 ```
-
-**Second Scan Attempt (409 Conflict — returning original timestamp):**
-```bash
-curl -i -X POST http://localhost:3000/checkins \
-  -H "Content-Type: application/json" \
-  -d "{\"code\": \"FPvr5pj37wQ\"}"
-```
-**Response (409 Conflict):**
+**Second Scan (409 Conflict with original timestamp):**
 ```json
 {
   "error": {
     "code": "ALREADY_CHECKED_IN",
     "message": "Ticket has already been checked in",
-    "checkedInAt": "2026-10-30T07:28:58.728Z"
+    "checkedInAt": "2026-10-30T10:56:25.304Z"
   }
 }
 ```
 
 ---
 
-## ⚔️ How to Verify Concurrency Yourself
-
-### The Two-Parallel-Curls Recipe (Attack A1: Oversell Race)
-When the event has 1 ticket left, launch two parallel requests at the exact same millisecond:
-
-**In PowerShell:**
-```powershell
-# Reset to 1 ticket remaining:
-npm run seed  # (in api/)
-
-# Book 1 ticket first:
-curl.exe -s -X POST http://localhost:3000/events/1/book -H "X-User-Id: 1" -H "Content-Type: application/json" -d "{\"quantity\": 1}"
-
-# Launch two parallel racing requests:
-$job1 = Start-Job -ScriptBlock { curl.exe -s -i -X POST http://localhost:3000/events/1/book -H "X-User-Id: 2" -H "Content-Type: application/json" -d "{\"quantity\": 1}" }
-$job2 = Start-Job -ScriptBlock { curl.exe -s -i -X POST http://localhost:3000/events/1/book -H "X-User-Id: 3" -H "Content-Type: application/json" -d "{\"quantity\": 1}" }
-
-Receive-Job -Job $job1 -Wait
-Receive-Job -Job $job2 -Wait
-```
-**Observed Result:**
-- Exactly one job outputs `201 Created`
-- Exactly one job outputs `409 Conflict` (`SOLD_OUT`)
-- Database assertion: `SELECT ticketsLeft FROM Event WHERE id=1;` yields `0` (never `-1`). Total tickets created: `2` (never `3`).
+## ⚔️ Concurrency Verification
 
 ### Automated Jest Concurrency Suite
-Run the automated parallel race test directly:
 ```bash
 cd api
 npm test
 ```
-The suite executes `Promise.allSettled` with concurrent bookings against an isolated test event with 1 ticket left, asserting that exactly one succeeds, one fails with `409 SoldOutError`, and `ticketsLeft` finishes at 0.
+*Executes `Promise.allSettled` concurrent booking races on an isolated test event, asserting exactly one succeeds, one fails with `409 SoldOutError`, and `ticketsLeft` reaches 0.*
 
-### Automated End-to-End Concurrency & DB Assertion Verification
-To run Attacks A1 and A4 against live HTTP endpoints with **raw post-attack database query dumps**:
+### Automated End-to-End Database Assertions
 ```bash
 cd api
 npm run verify:concurrency
 ```
-**Captured Live Evidence:**
+*Runs live parallel oversell race (A1) and replay race (A4) against HTTP endpoints, printing post-attack database query assertions before resetting seed state:*
 ```text
 === ATTACK A1 — TWO PARALLEL OVERSELL REQUESTS (ICHIGO vs LUFFY) ===
-Ichigo HTTP Result: 409 {"error":{"code":"SOLD_OUT","message":"Insufficient tickets remaining for this event"}}
+Ichigo HTTP Result: 409 {"error":{"code":"SOLD_OUT"}}
 Luffy HTTP Result:  201 {"tickets":[{"code":"X8tQ6XNX3pc", ...}]}
 
 === RAW DATABASE ASSERTIONS POST-ATTACK A1 ===
-DB ASSERTION 1 - ticketsLeft: 0 (MUST BE EXACTLY 0, NEVER -1)
-DB ASSERTION 2 - total tickets created in DB: 2 (MUST BE EXACTLY 2, NEVER 3)
-┌─────────┬────┬───────────────┬────────┬──────────────────────────┬─────────────┐
-│ (index) │ id │ code          │ userId │ createdAt                │ checkedInAt │
-├─────────┼────┼───────────────┼────────┼──────────────────────────┼─────────────┤
-│ 0       │ 1  │ 'LAupKs3-VLg' │ 1      │ 2026-10-30T10:56:25.254Z │ null        │
-│ 1       │ 2  │ 'X8tQ6XNX3pc' │ 3      │ 2026-10-30T10:56:25.282Z │ null        │
-└─────────┴────┴───────────────┴────────┴──────────────────────────┴─────────────┘
+DB ASSERTION 1 - ticketsLeft: 0 (EXACTLY 0, NEVER -1)
+DB ASSERTION 2 - total tickets created in DB: 2 (EXACTLY 2, NEVER 3)
 
 === ATTACK A4 — TWO PARALLEL CHECK-INS FOR TICKET 1 ===
-Check-in Request A: 409 {"error":{"code":"ALREADY_CHECKED_IN", ...,"checkedInAt":"2026-10-30T10:56:25.304Z"}}
+Check-in Request A: 409 {"error":{"code":"ALREADY_CHECKED_IN","checkedInAt":"2026-10-30T10:56:25.304Z"}}
 Check-in Request B: 200 {"code":"LAupKs3-VLg","checkedInAt":"2026-10-30T10:56:25.304Z"}
 
 === RAW DATABASE ASSERTIONS POST-ATTACK A4 ===
-DB Ticket checkedInAt: 2026-10-30T10:56:25.304Z
-Winner 200 returned timestamp: 2026-10-30T10:56:25.304Z
-Loser 409 returned checkedInAt: 2026-10-30T10:56:25.304Z
-Byte-identical comparison (Winner vs Loser): true
-Byte-identical comparison (Loser vs DB): true
+DB Ticket checkedInAt:                  2026-10-30T10:56:25.304Z
+Winner 200 returned timestamp:          2026-10-30T10:56:25.304Z
+Loser 409 returned checkedInAt:         2026-10-30T10:56:25.304Z
+Byte-identical comparison (Winner/Loser): true
+Byte-identical comparison (Loser/DB):    true
 ```
 
 ---
 
-## 📱 Mobile App Verification Walkthrough (vivo X200)
+## 🚫 Deliberate Deferrals & Scope
 
-1. **Launch App:**
-   - Active identity is Naruto (`X-User-Id: 1`) by default in the top identity bar.
-   - Event "OTA TOKYO Fan Fest" shows `2 TICKETS LEFT` in vermillion tag badge.
-   - Warm paper background (`#FAF7F2`) and card surfaces with zero layout shifts.
-2. **Book 1 Ticket:**
-   - Select Quantity: `1` using compact horizontal stepper `[-] 1 [+]` -> tap `BOOK 1 TICKET`.
-   - Button scales slightly (0.97 press feedback) and transitions to `RESERVING...` (disabled while in flight).
-   - Animated slide-down confirmation banner appears (`RESERVED 1 TICKET!`), inventory immediately cross-fades to `1 TICKET LEFT`.
-3. **Switch User & Book Remaining Ticket:**
-   - Tap `Ichigo` (`#2`) in the identity bar.
-   - Quantity selector caps at `1` (remaining stock).
-   - Tap `BOOK 1 TICKET`.
-   - Event status updates to `SOLD OUT` (inkSoft), and booking button is disabled.
-4. **View Ticket & QR Code:**
-   - Switch to the `MY TICKETS` tab.
-   - Ticket card renders with stub cutout divider, `#<random_code>`, event details, and quiet-zone QR code (`#000000` on `#FFFFFF`).
-   - Status badge shows `ADMIT ONE` in matcha green (`#2F9E6E`).
-5. **Gate Check-in Simulation:**
-   - In terminal, check in the ticket:
-     ```bash
-     curl -X POST http://localhost:3000/checkins -H "Content-Type: application/json" -d "{\"code\": \"<CODE_ON_SCREEN>\"}"
-     ```
-   - On the phone, pull down to refresh `MY TICKETS`.
-   - Badge cross-fades (250ms) to `CHECKED IN` in amber (`#C98A12`) with the exact gate scan timestamp badge, and the QR wrapper dims to 0.55 opacity.
-6. **Network Resilience (Airplane / Offline Mode):**
-   - Toggle Airplane mode ON (or stop API connection).
-   - Pull down to refresh -> immediately raises native modal `Connection Offline` alert dialog and top failure banner (or warm paper `ErrorView` with `CODE: NETWORK_ERROR` and `Try Again` button if cold-started offline; zero unhandled promise rejections, crashes, or white screens).
-   - Re-enable connection -> tap `OK` / `Try Again` -> cleanly reloads ticket list and inventory.
-
----
-
-## 🚫 Deliberate Scope Exclusions & Deferrals
-
-- **Optional Features (Not Implemented):** `expo-camera` scanner and `i18next` localization.
-  - The check-in API fully supports a physical scanner out of the box — it is a single `POST /checkins` call away; the server remains the sole admission authority. Gate check-in was thoroughly verified via curl simulation against the live device display.
-  - Localization was deferred in favor of bulletproof concurrency invariants, transaction safety, and end-to-end device testing.
-- **Architectural Exclusions (By Design):**
-  - **No JWT / Auth framework:** Validated identity header (`X-User-Id`) per the brief.
-  - **No distributed locks / Redis:** A single InnoDB row lock serializes conditional updates in microseconds without distributed coordination overhead.
-  - **No rotating QR codes:** Rotating/signed QR payloads (Ticketmaster SafeTix model) were evaluated and rejected as over-engineering for this threat model (staff scan at gate, no secondary resale); static CSPRNG codes (`base64url`) paired with server-side single-use atomic check-in fully guarantee admission integrity.
-
+- **Optional Features Deferred:** `expo-camera` scanner and `i18next` localization. The `POST /checkins` API is scanner-ready; gate check-in was verified via terminal simulation and live pull-to-refresh badge transition.
+- **Idempotency Position:** Booking is atomic (cannot oversell) but retries are fresh bookings; fans reconcile via `GET /me/tickets`. To preserve trust, reads fail fast on dead networks (10s timeout), while writes (`POST /book`) await authoritative server resolution under database lock.

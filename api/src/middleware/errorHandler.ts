@@ -2,13 +2,13 @@ import { Request, Response, NextFunction } from "express";
 import { AppError } from "../lib/errors.js";
 
 export function errorHandler(
-  err: any,
+  err: unknown,
   req: Request,
   res: Response,
   next: NextFunction
 ) {
   if (err instanceof AppError) {
-    const errorBody: Record<string, any> = {
+    const errorBody: Record<string, unknown> = {
       code: err.code,
       message: err.message,
     };
@@ -19,10 +19,11 @@ export function errorHandler(
   }
 
   // Handle JSON parse errors from express.json()
-  if (
-    err.type === "entity.parse.failed" ||
-    (err instanceof SyntaxError && "body" in err)
-  ) {
+  const isBadJson =
+    (typeof err === "object" && err !== null && "type" in err && (err as { type: string }).type === "entity.parse.failed") ||
+    (err instanceof SyntaxError && "body" in err);
+
+  if (isBadJson) {
     return res.status(400).json({
       error: {
         code: "BAD_REQUEST",

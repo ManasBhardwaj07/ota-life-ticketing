@@ -2,6 +2,8 @@ import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { colors, radius, spacing, typography } from "../theme";
 
+export const BOOKING_MAX_QTY = 4;
+
 interface Props {
   value: number;
   onChange: (qty: number) => void;
@@ -9,17 +11,25 @@ interface Props {
   disabled?: boolean;
 }
 
-export function QtyPicker({ value, onChange, max = 4, disabled = false }: Props) {
-  const effectiveMax = Math.min(4, Math.max(1, max));
+export function QtyPicker({ value, onChange, max = BOOKING_MAX_QTY, disabled = false }: Props) {
+  const effectiveMax = Math.min(BOOKING_MAX_QTY, Math.max(1, max));
+  const clampedValue = Math.min(Math.max(1, value), effectiveMax);
+
+  // Sync parent if value was clamped by shrinking inventory
+  React.useEffect(() => {
+    if (value > effectiveMax) {
+      onChange(effectiveMax);
+    }
+  }, [value, effectiveMax, onChange]);
 
   const handleDecrement = () => {
-    if (disabled || value <= 1) return;
-    onChange(value - 1);
+    if (disabled || clampedValue <= 1) return;
+    onChange(clampedValue - 1);
   };
 
   const handleIncrement = () => {
-    if (disabled || value >= effectiveMax) return;
-    onChange(value + 1);
+    if (disabled || clampedValue >= effectiveMax) return;
+    onChange(clampedValue + 1);
   };
 
   return (
@@ -31,27 +41,27 @@ export function QtyPicker({ value, onChange, max = 4, disabled = false }: Props)
 
       <View style={styles.stepperRow}>
         <TouchableOpacity
-          style={[styles.btn, (disabled || value <= 1) && styles.btnDisabled]}
+          style={[styles.btn, (disabled || clampedValue <= 1) && styles.btnDisabled]}
           onPress={handleDecrement}
-          disabled={disabled || value <= 1}
+          disabled={disabled || clampedValue <= 1}
           activeOpacity={0.7}
           accessibilityLabel="Decrease ticket quantity"
           accessibilityRole="button"
         >
-          <Text style={[styles.btnText, (disabled || value <= 1) && styles.textDisabled]}>−</Text>
+          <Text style={[styles.btnText, (disabled || clampedValue <= 1) && styles.textDisabled]}>−</Text>
         </TouchableOpacity>
 
-        <Text style={styles.valueText}>{value}</Text>
+        <Text style={styles.valueText}>{clampedValue}</Text>
 
         <TouchableOpacity
-          style={[styles.btn, (disabled || value >= effectiveMax) && styles.btnDisabled]}
+          style={[styles.btn, (disabled || clampedValue >= effectiveMax) && styles.btnDisabled]}
           onPress={handleIncrement}
-          disabled={disabled || value >= effectiveMax}
+          disabled={disabled || clampedValue >= effectiveMax}
           activeOpacity={0.7}
           accessibilityLabel="Increase ticket quantity"
           accessibilityRole="button"
         >
-          <Text style={[styles.btnText, (disabled || value >= effectiveMax) && styles.textDisabled]}>+</Text>
+          <Text style={[styles.btnText, (disabled || clampedValue >= effectiveMax) && styles.textDisabled]}>+</Text>
         </TouchableOpacity>
       </View>
     </View>

@@ -50,7 +50,7 @@ ota-life-ticketing/
 │   │   │   ├── config.ts         # API_BASE_URL = http://127.0.0.1:3000 (sole source of truth)
 │   │   │   └── client.ts         # Fetch client injecting X-User-Id with typed errors
 │   │   ├── screens/              # EventsScreen.tsx, MyTicketsScreen.tsx
-│   │   ├── components/           # TicketCard.tsx, QtyPicker.tsx, LoadingView.tsx, ErrorView.tsx, UserSwitcher.tsx, EventCardSkeleton.tsx, TicketCardSkeleton.tsx
+│   │   ├── components/           # TicketCard.tsx, QtyPicker.tsx, ErrorView.tsx, UserSwitcher.tsx, EventCardSkeleton.tsx, TicketCardSkeleton.tsx
 │   │   ├── theme.ts              # Semantic light tokens (paper, ink, vermillion, matcha, amber)
 │   │   └── types.ts
 │   └── package.json

@@ -4,6 +4,8 @@ import { bookTickets } from "../services/booking.js";
 import { validateUserId } from "../middleware/userId.js";
 import { BadRequestError } from "../lib/errors.js";
 
+export const BOOKING_MAX_QTY = 4;
+
 const router = Router();
 
 // GET /events -> 200 [{ id, name, venue, date, price, ticketsLeft }]
@@ -31,15 +33,15 @@ router.post(
         throw new BadRequestError("Invalid event ID");
       }
 
-      // ROUTE GUARD FIRST: Policy layer (no DB touched)
+      // Route guard enforces business purchase limits before database transaction
       const { quantity } = req.body;
       if (
         typeof quantity !== "number" ||
         !Number.isInteger(quantity) ||
         quantity < 1 ||
-        quantity > 4
+        quantity > BOOKING_MAX_QTY
       ) {
-        throw new BadRequestError("Quantity must be an integer between 1 and 4");
+        throw new BadRequestError(`Quantity must be an integer between 1 and ${BOOKING_MAX_QTY}`);
       }
 
       const tickets = await bookTickets({

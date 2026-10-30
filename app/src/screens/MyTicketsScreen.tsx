@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -26,7 +26,21 @@ export function MyTicketsScreen({ activeUserId, onExploreEvents }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<{ message: string; code?: string } | null>(null);
 
+  // B05 & B13: Stale user race protection and lifecycle cleanup
+  const isMountedRef = useRef(true);
+  const activeUserRef = useRef(activeUserId);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const loadTickets = useCallback(async (isRefresh = false) => {
+    const targetUserId = activeUserId;
+    activeUserRef.current = targetUserId;
+
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -36,10 +50,17 @@ export function MyTicketsScreen({ activeUserId, onExploreEvents }: Props) {
 
     try {
       const data = await fetchApi<Ticket[]>("/me/tickets");
+      // Ignore response if active user switched or component unmounted in-flight
+      if (!isMountedRef.current || activeUserRef.current !== targetUserId) {
+        return;
+      }
       setTickets(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!isMountedRef.current || activeUserRef.current !== targetUserId) {
+        return;
+      }
       const code = err instanceof ApiError ? err.code : undefined;
-      const message = err.message || "Failed to load tickets";
+      const message = err instanceof Error ? err.message : "Failed to load tickets";
       setError({ message, code });
 
       if (isRefresh) {
@@ -50,8 +71,10 @@ export function MyTicketsScreen({ activeUserId, onExploreEvents }: Props) {
         );
       }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isMountedRef.current && activeUserRef.current === targetUserId) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [activeUserId]);
 

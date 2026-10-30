@@ -34,6 +34,8 @@ export class ApiError extends Error {
   }
 }
 
+const REQUEST_TIMEOUT_MS = 10000;
+
 export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
@@ -47,18 +49,25 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     headers["Content-Type"] = "application/json";
   }
 
+  // B04: AbortController prevents dead connections from hanging indefinitely
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   let response: Response;
   try {
     response = await fetch(url, {
       ...options,
       headers,
+      signal: options.signal || controller.signal,
     });
-  } catch (err: any) {
-    throw new ApiError(
-      0,
-      "NETWORK_ERROR",
-      `Network connection failed. Verify API server is running and ADB reverse is active.`
-    );
+  } catch (err: unknown) {
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    const message = isTimeout
+      ? "Request timed out after 10s. Verify connection."
+      : "Network connection failed. Verify API server is running and ADB reverse is active.";
+    throw new ApiError(0, "NETWORK_ERROR", message);
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {

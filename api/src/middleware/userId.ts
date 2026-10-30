@@ -21,13 +21,14 @@ export async function validateUserId(
       throw new UnauthorizedError("Missing X-User-Id header");
     }
 
-    // Must be integer format (no decimals, no letters)
-    if (!/^\d+$/.test(headerValue.trim())) {
+    const trimmed = headerValue.trim();
+    // Rejects decimals ("1.5"), alphanumeric ("2abc"), and empty strings
+    if (!/^\d+$/.test(trimmed)) {
       throw new UnauthorizedError("Invalid X-User-Id header format; integer required");
     }
 
-    const userId = parseInt(headerValue.trim(), 10);
-    if (isNaN(userId) || userId <= 0) {
+    const userId = Number(trimmed);
+    if (!Number.isInteger(userId) || !Number.isSafeInteger(userId) || userId <= 0) {
       throw new UnauthorizedError("Invalid X-User-Id header value");
     }
 

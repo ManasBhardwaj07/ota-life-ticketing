@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { Event } from "../types";
 import { fetchApi, ApiError } from "../api/client";
-import { QtyPicker } from "../components/QtyPicker";
+import { QtyPicker, BOOKING_MAX_QTY } from "../components/QtyPicker";
 import { ErrorView } from "../components/ErrorView";
 import { EventCardSkeleton } from "../components/EventCardSkeleton";
 import { colors, radius, spacing, typography, motion } from "../theme";
@@ -36,9 +36,10 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [banner, setBanner] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
-  // Banner slide-down animation
+  // Banner slide-down animation and lifecycle references
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
 
   const showBanner = (text: string, type: "success" | "error") => {
     if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
@@ -55,7 +56,9 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
         toValue: 0,
         duration: motion.duration.banner,
         useNativeDriver: true,
-      }).start(() => setBanner(null));
+      }).start(() => {
+        if (isMountedRef.current) setBanner(null);
+      });
     }, motion.timing.bannerDismiss);
   };
 
@@ -69,6 +72,7 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
 
     try {
       const data = await fetchApi<Event[]>("/events");
+      if (!isMountedRef.current) return;
       eventsCache = { data, timestamp: Date.now() };
       setEvents(data);
 
@@ -79,9 +83,10 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
         });
         return next;
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!isMountedRef.current) return;
       const code = err instanceof ApiError ? err.code : undefined;
-      const message = err.message || "Failed to load events";
+      const message = err instanceof Error ? err.message : "Failed to load events";
       setError({ message, code });
 
       if (isRefresh) {
@@ -93,23 +98,26 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
         );
       }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [events.length]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     // SWR: If cache exists and is fresh (< 30s), render immediately & refresh silently
     const isFresh = eventsCache && Date.now() - eventsCache.timestamp < CACHE_TTL_MS;
     if (isFresh) {
       setEvents(eventsCache!.data);
       setLoading(false);
-      // Silent background validation
       loadEvents(false);
     } else {
       loadEvents(false);
     }
     return () => {
+      isMountedRef.current = false;
       if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
     };
   }, []);
@@ -119,16 +127,20 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
   };
 
   const handleBook = async (event: Event) => {
-    const qty = quantities[event.id] || 1;
+    // B03 defense: Clamp requested quantity to current stock and global limit
+    const rawQty = quantities[event.id] || 1;
+    const maxAllowed = Math.min(BOOKING_MAX_QTY, Math.max(1, event.ticketsLeft));
+    const qty = Math.max(1, Math.min(rawQty, maxAllowed));
     setBookingEventId(event.id);
 
     try {
-      const res = await fetchApi<{ tickets: any[] }>(`/events/${event.id}/book`, {
+      const res = await fetchApi<{ tickets: unknown[] }>(`/events/${event.id}/book`, {
         method: "POST",
         body: JSON.stringify({ quantity: qty }),
       });
 
-      const count = res.tickets?.length || qty;
+      if (!isMountedRef.current) return;
+      const count = Array.isArray(res.tickets) ? res.tickets.length : qty;
 
       // Micro-optimism: local decrement of ticketsLeft ONLY AFTER 201 response arrives
       setEvents((prevEvents) =>
@@ -150,7 +162,8 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
       if (onBookingSuccess) {
         onBookingSuccess();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!isMountedRef.current) return;
       const msg = err instanceof ApiError ? err.message : "Booking could not be completed";
       showBanner(msg, "error");
       Alert.alert(
@@ -161,7 +174,9 @@ export function EventsScreen({ onBookingSuccess, activeUserId }: Props) {
       // Reconcile truthful stock on error
       loadEvents(false);
     } finally {
-      setBookingEventId(null);
+      if (isMountedRef.current) {
+        setBookingEventId(null);
+      }
     }
   };
 
@@ -374,7 +389,7 @@ function EventCardItem({
         <QtyPicker
           value={selectedQty}
           onChange={onQtyChange}
-          max={Math.min(4, item.ticketsLeft)}
+          max={Math.min(BOOKING_MAX_QTY, item.ticketsLeft)}
           disabled={isBooking}
         />
       )}

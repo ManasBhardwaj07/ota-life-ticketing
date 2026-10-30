@@ -52,7 +52,7 @@ export async function bookTickets({ eventId, userId, quantity }: BookTicketsPara
         });
 
         break;
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
           attempts++;
           if (attempts >= maxRetries) {

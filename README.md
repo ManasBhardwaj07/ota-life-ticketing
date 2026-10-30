@@ -302,3 +302,16 @@ The suite executes `Promise.allSettled` with concurrent bookings against an isol
    - Toggle Airplane mode ON.
    - Pull down to refresh -> renders dark themed `ErrorView` with `CODE: NETWORK_ERROR` and `Try Again` button (no unhandled promise rejections, crashes, or white screens).
    - Toggle Airplane mode OFF -> tap `Try Again` -> cleanly reloads ticket list.
+
+---
+
+## 🚫 Deliberate Scope Exclusions & Deferrals
+
+- **Optional Features (Not Implemented):** `expo-camera` scanner and `i18next` localization.
+  - The check-in API fully supports a physical scanner out of the box — it is a single `POST /checkins` call away; the server remains the sole admission authority. Gate check-in was thoroughly verified via curl simulation against the live device display.
+  - Localization was deferred in favor of bulletproof concurrency invariants, transaction safety, and end-to-end device testing.
+- **Architectural Exclusions (By Design):**
+  - **No JWT / Auth framework:** Validated identity header (`X-User-Id`) per the brief.
+  - **No distributed locks / Redis:** A single InnoDB row lock serializes conditional updates in microseconds without distributed coordination overhead.
+  - **No rotating QR codes:** Rotating/signed QR payloads (Ticketmaster SafeTix model) were evaluated and rejected as over-engineering for this threat model (staff scan at gate, no secondary resale); static CSPRNG codes (`base64url`) paired with server-side single-use atomic check-in fully guarantee admission integrity.
+

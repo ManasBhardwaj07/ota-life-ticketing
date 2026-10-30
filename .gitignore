@@ -4,3 +4,6 @@ dist/
 .expo/
 *.log
 .DS_Store
+*.mp4
+app_screen*.png
+
